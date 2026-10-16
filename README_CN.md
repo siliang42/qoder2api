@@ -150,15 +150,89 @@ Auth JSON 文件和 token 文件包含有效凭据，**请勿提交到版本控�
 
 [MIT](LICENSE)
 
+## 实现原理
 
-## 本仓库（Fork）的改动
+> 本仓库在 `jyao0708/qoder2api` 基础上补齐了 **Claude Code CLI** 与 **Codex CLI** 的真实可用性（工具调用链路）。下面逐条说明每个机制。
 
-在 `jyao0708/qoder2api` 基础上补齐了 **Claude Code CLI** 与 **Codex CLI** 的真实可用性（工具调用链路）：
+### 1. 整体架构
 
-- **工具调用**：按客户端请求把工具注册成 Qoder 云端的 custom tool（`type: custom`），把云端返回的 `agent.custom_tool_use` 事件解析成标准 `tool_calls` / `tool_use`，收到工具结果后继续下一轮。实测 `claude` 与 `codex exec` 都能真正执行 shell、读写文件。
-- **工具名冲突处理**：云端内建工具名（`bash/read/write/edit/glob/grep/webfetch/web_search`）与 `mcp__` 前缀均为保留名，注册时统一加 `cc_` 前缀，回译时还原成客户端原始工具名。
-- **模型回落**：云端只接受官方模型 key（`auto/dmodel/qmodel/...`），客户端传来的 `claude-*`、`gpt-*` 会自动回落到 `QODER_MODEL`（默认 `auto`）。
-- **多轮上下文**：转写 transcript 时带上历史的 `tool_calls` / `tool_call_id`，保证多轮工具循环上下文完整。
+![整体架构](docs/img/architecture.svg)
+
+桥只监听 `127.0.0.1:8963`，对外暴露三个协议入口；所有上游请求带 `pt-` 个人令牌打到 Qoder 云端 Agent API。
+
+| 层 | 内容 |
+| --- | --- |
+| 客户端 | Claude Code CLI（Anthropic Messages）、Codex CLI（OpenAI Responses）、cc-switch 托管的 Claude Desktop / Codex |
+| 本地桥 | `127.0.0.1:8963`：协议翻译 + 工具注册 + 事件回译，`launchd` 常驻 |
+| 云端 | `/environments`、`/agents`、`/sessions`、`/sessions/{id}/events`、`/events/stream`（SSE） |
+| 模型 | `auto / dmodel / qmodel / kmodel / gmodel / …` |
+
+### 2. 工具调用回路
+
+![工具调用回路](docs/img/tool-loop.svg)
+
+关键点：**云端 agent 必须"认识"客户端要用的工具**，否则模型只会把调用写成文本、客户端收不到。
+
+1. 客户端请求（`/v1/responses`、`/v1/messages`）里带 `tools`。
+2. 桥按**工具集指纹**建或复用云端 agent：`sha256(model + tools)[:8]` 作为缓存键，同一套工具只建一次。
+3. 桥创建 session，并把对话转录成一条 `user.message`。
+4. 云端返回 `agent.custom_tool_use {name, input}` —— 注意事件名是 `custom_tool_use`，不是 `tool_use`。
+5. 桥回译成客户端认识的 `function_call` / `tool_use`。
+6. 客户端**在本地执行**工具（文件、shell 都由客户端做，桥不接管执行）。
+7. 客户端把结果（`function_call_output` / `tool_result`）带回桥。
+8. 桥开新 session，把**含历史 `tool_calls` / `tool_call_id` 的完整转录**再发一次。
+9. 云端返回 `agent.message`。
+10. 桥下发最终文本。
+
+### 3. 工具注册与命名冲突
+
+![工具名冲突与回译](docs/img/tool-name-map.svg)
+
+云端 agent 自带一批工具名（`bash/read/write/edit/glob/grep/webfetch/web_search`），`mcp__` 前缀又保留给 MCP，两者都不能直接用作 custom tool 名。于是：
+
+- 命中内建名或 `mcp__` 前缀 → 加 `cc_` 前缀注册；
+- 出站回译时去掉前缀，还原成客户端原始名；
+- 不冲突的名字原样保留。
+
+这样 Claude Code 的 `Bash/Read/Write/…`、Codex 的 `mcp__*` 都能正常往返。
+
+### 4. 文本泄漏回退解析
+
+![文本泄漏回退](docs/img/text-leak-fallback.svg)
+
+Qoder 的模型偶尔把工具调用**当普通文本输出**（`<antml:function_calls>`、`<tool_call>`）。此时没有 `agent.custom_tool_use` 事件，客户端收不到调用，agent 空转。
+
+做法：带工具时把上游事件**聚合整轮**；若结尾没有结构化 `tool_calls`，就从文本里回退解析：
+
+- 形式一：`<antml:invoke name="X"><antml:parameter name="K">V</antml:parameter></antml:invoke>`
+- 形式二：`<tool_call>NAME <arg_value>k: v</arg_value>…</tool_call>`
+
+解析出 `name + 参数` 后**截掉泄漏块**（只保留正文），再按结构化 `tool_calls` 下发。
+
+> 代价：带工具时整轮聚合，所以工具场景下没有逐字流式；纯聊天仍保留流式。
+
+### 5. 模型回落
+
+云端只接受官方模型 key，而客户端发来的是 `claude-sonnet-5`、`gpt-6.1-sol` 这类名字，直接注册会 400。因此：
+
+- 命中 `knownQoderModels` → 原样使用；
+- 否则回落到 `QODER_MODEL`（默认 `auto`）。
+
+想固定模型，把 `QODER_MODEL` 设成 `dmodel` / `qmodel` / … 即可。
+
+### 6. 关键源码
+
+| 文件 | 作用 |
+| --- | --- |
+| `internal/qoder/cloud.go` | 云端后端：agent 缓存、工具注册、事件回译、文本回退解析 |
+| `internal/qoder/backend.go` | 后端选择（PAT → Cloud Agents，否则 legacy） |
+| `internal/bridge/messages.go` | Anthropic Messages 协议编解码 |
+| `internal/bridge/responses.go` | OpenAI Responses 协议编解码 |
+| `internal/bridge/handler.go` | 三个入口路由 |
+| `internal/bridge/util.go` | 工具定义归一化 |
+| `scripts/claude.sh` / `scripts/codex.sh` | 两个 CLI 的启动包装 |
+
+## 用法
 
 ### 用 Claude Code CLI
 
@@ -187,3 +261,8 @@ OPENAI_API_KEY=qoder-local codex \
   -c 'model_providers.custom.wire_api="responses"' \
   -c 'model_providers.custom.requires_openai_auth=false'
 ```
+
+### 已验证
+
+- `codex exec`：真实执行 shell、写文件并读回（多次通过）。
+- `claude -p`：用 Bash 工具写文件并读回（多次通过）。

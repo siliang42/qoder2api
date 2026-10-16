@@ -149,3 +149,48 @@ Auth JSON files and token files contain live credentials. **Never commit them to
 ## License
 
 [MIT](LICENSE)
+
+
+## Fork: how it works
+
+This fork makes the bridge actually usable with **Claude Code CLI** and **Codex CLI** by fixing the tool-calling path. Full write-up (Chinese, with diagrams): [README_CN.md](README_CN.md).
+
+![Architecture](docs/img/architecture.svg)
+
+The bridge exposes three endpoints on `127.0.0.1:8963` and talks to Qoder's Cloud Agents API (`https://api.qoder.com/api/v1/cloud/*`) using your `pt-` personal token.
+
+![Tool call loop](docs/img/tool-loop.svg)
+
+1. The client sends `tools` with each request.
+2. The bridge creates (or reuses) a cloud agent whose custom tools mirror the client's tool set, cached by `sha256(model + tools)[:8]`.
+3. The bridge opens a session and sends the transcript as a `user.message`.
+4. The cloud replies with `agent.custom_tool_use {name, input}` (the event name is `custom_tool_use`, not `tool_use`).
+5. The bridge translates it back to `function_call` / `tool_use` for the client.
+6. The client executes the tool locally and posts the result back; the bridge starts a new session with the full transcript (including `tool_calls` / `tool_call_id`).
+
+![Tool name mapping](docs/img/tool-name-map.svg)
+
+Cloud builtin names (`bash/read/write/edit/glob/grep/webfetch/web_search`) and the `mcp__` prefix are reserved, so conflicting tool names are registered with a `cc_` prefix and renamed back on the way out.
+
+![Text leak fallback](docs/img/text-leak-fallback.svg)
+
+Qoder's model occasionally prints the tool call as text (`<antml:function_calls>`, `<tool_call>`). When the request carries tools, the bridge aggregates the turn and, if no structured `tool_calls` arrived, parses them out of the text and strips the leaked block. As a trade-off, tool turns are not token-streamed; plain chat still streams.
+
+Unknown model names (`claude-*`, `gpt-*`) fall back to `QODER_MODEL` (default `auto`).
+
+### Claude Code CLI
+
+```bash
+scripts/claude.sh -p "write a file with bash and read it back"
+```
+
+### Codex CLI
+
+```bash
+scripts/codex.sh exec "run echo hi with shell"
+```
+
+### Verified
+
+- `codex exec`: real shell execution, file write and read-back (repeatedly).
+- `claude -p`: file write and read-back via the Bash tool (repeatedly).

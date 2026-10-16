@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="560" viewBox="0 0 1000 560" font-family='-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Helvetica Neue",Arial,sans-serif'>
+<rect x="0" y="0" width="1000" height="560" fill="#ffffff"/>
+<defs>
+  <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+    <path d="M0,0 L10,5 L0,10 z" fill="#94a3b8"/>
+  </marker>
+  <marker id="arrowB" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+    <path d="M0,0 L10,5 L0,10 z" fill="#2563eb"/>
+  </marker>
+</defs>
+<text x="30" y="44" font-size="18" fill="#0f172a" text-anchor="start" font-weight="700">文本泄漏回退解析</text>
+<text x="30" y="68" font-size="12" fill="#475569" text-anchor="start" font-weight="normal">Qoder 模型偶尔把工具调用写成文本，需要从整段文本里回退解析，否则 agent 会空转</text>
+<rect x="70" y="100" width="860" height="64" rx="10" fill="#f5f3ff" stroke="#c4b5fd" stroke-width="1.2"/>
+<text x="92" y="127" font-size="13.5" fill="#0f172a" text-anchor="start" font-weight="600">云端事件流</text>
+<text x="92" y="148" font-size="11.5" fill="#475569" text-anchor="start" font-weight="normal">agent.message / agent.custom_tool_use / session.status_idle</text>
+<line x1="500" y1="164" x2="500" y2="190" stroke="#94a3b8" stroke-width="1.4" marker-end="url(#arrow)"/>
+<rect x="70" y="190" width="860" height="64" rx="10" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1.2"/>
+<text x="92" y="217" font-size="13.5" fill="#0f172a" text-anchor="start" font-weight="600">带工具时聚合整轮</text>
+<text x="92" y="238" font-size="11.5" fill="#475569" text-anchor="start" font-weight="normal">bufferedStream 收集全部文本与结构化 tool_calls</text>
+<line x1="500" y1="254" x2="500" y2="280" stroke="#94a3b8" stroke-width="1.4" marker-end="url(#arrow)"/>
+<rect x="70" y="280" width="860" height="64" rx="10" fill="#eff6ff" stroke="#93b4f2" stroke-width="1.2"/>
+<text x="92" y="307" font-size="13.5" fill="#0f172a" text-anchor="start" font-weight="600">已有结构化 tool_calls ?</text>
+<text x="92" y="328" font-size="11.5" fill="#475569" text-anchor="start" font-weight="normal">是 → 直接下发；正文照常返回</text>
+<line x1="500" y1="344" x2="500" y2="370" stroke="#94a3b8" stroke-width="1.4" marker-end="url(#arrow)"/>
+<rect x="70" y="370" width="860" height="64" rx="10" fill="#fff7ed" stroke="#fdba74" stroke-width="1.2"/>
+<text x="92" y="397" font-size="13.5" fill="#0f172a" text-anchor="start" font-weight="600">否 → 扫描文本标记</text>
+<text x="92" y="418" font-size="11.5" fill="#475569" text-anchor="start" font-weight="normal">&lt;antml:function_calls&gt; / &lt;tool_call&gt; / &lt;invoke&gt;</text>
+<line x1="500" y1="434" x2="500" y2="460" stroke="#94a3b8" stroke-width="1.4" marker-end="url(#arrow)"/>
+<rect x="70" y="460" width="860" height="64" rx="10" fill="#f0fdf4" stroke="#86efac" stroke-width="1.2"/>
+<text x="92" y="487" font-size="13.5" fill="#0f172a" text-anchor="start" font-weight="600">解析并剥离</text>
+<text x="92" y="508" font-size="11.5" fill="#475569" text-anchor="start" font-weight="normal">抽出 name+参数 → tool_calls；截掉泄漏块，只留正文</text>
+</svg>

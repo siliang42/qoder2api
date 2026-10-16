@@ -1,0 +1,55 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1020" height="700" viewBox="0 0 1020 700" font-family='-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Helvetica Neue",Arial,sans-serif'>
+<rect x="0" y="0" width="1020" height="700" fill="#ffffff"/>
+<defs>
+  <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+    <path d="M0,0 L10,5 L0,10 z" fill="#94a3b8"/>
+  </marker>
+  <marker id="arrowB" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+    <path d="M0,0 L10,5 L0,10 z" fill="#2563eb"/>
+  </marker>
+</defs>
+<text x="30" y="44" font-size="18" fill="#0f172a" text-anchor="start" font-weight="700">qoder2api 桥 · 整体架构</text>
+<text x="30" y="68" font-size="12" fill="#475569" text-anchor="start" font-weight="normal">本机上三个协议入口 → 本地桥 → Qoder 云端 Agent API → 模型</text>
+<rect x="30" y="100" width="290" height="56" rx="10" fill="#eff6ff" stroke="#2563eb" stroke-width="1.2"/>
+<text x="46" y="126" font-size="14" fill="#2563eb" text-anchor="start" font-weight="600">Claude Code CLI</text>
+<text x="46" y="144" font-size="11.5" fill="#475569" text-anchor="start" font-weight="normal">/v1/messages · Anthropic</text>
+<rect x="355" y="100" width="290" height="56" rx="10" fill="#eff6ff" stroke="#2563eb" stroke-width="1.2"/>
+<text x="371" y="126" font-size="14" fill="#2563eb" text-anchor="start" font-weight="600">Codex CLI</text>
+<text x="371" y="144" font-size="11.5" fill="#475569" text-anchor="start" font-weight="normal">/v1/responses · OpenAI</text>
+<rect x="680" y="100" width="290" height="56" rx="10" fill="#eff6ff" stroke="#2563eb" stroke-width="1.2"/>
+<text x="696" y="126" font-size="14" fill="#2563eb" text-anchor="start" font-weight="600">cc-switch</text>
+<text x="696" y="144" font-size="11.5" fill="#475569" text-anchor="start" font-weight="normal">Claude Desktop / Codex</text>
+<line x1="175.0" y1="156" x2="175.0" y2="225" stroke="#93b4f2" stroke-width="1.4" marker-end="url(#arrowB)"/>
+<line x1="500.0" y1="156" x2="500.0" y2="225" stroke="#93b4f2" stroke-width="1.4" marker-end="url(#arrowB)"/>
+<line x1="825.0" y1="156" x2="825.0" y2="225" stroke="#93b4f2" stroke-width="1.4" marker-end="url(#arrowB)"/>
+<rect x="30" y="228" width="940" height="150" rx="12" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1.2"/>
+<text x="48" y="256" font-size="15" fill="#0f172a" text-anchor="start" font-weight="700">本地桥 127.0.0.1:8963</text>
+<text x="48" y="276" font-size="12" fill="#475569" text-anchor="start" font-weight="normal">进程内协议翻译 + 工具注册 + 事件回译</text>
+<rect x="48" y="292" width="290" height="68" rx="9" fill="#eef2f7" stroke="#cbd5e1" stroke-width="1.2"/>
+<text x="62" y="320" font-size="13" fill="#0f172a" text-anchor="start" font-weight="600" font-family="ui-monospace,SFMono-Regular,Menlo,monospace">/v1/messages</text>
+<text x="62" y="340" font-size="11.5" fill="#475569" text-anchor="start" font-weight="normal">Anthropic Messages</text>
+<rect x="354" y="292" width="290" height="68" rx="9" fill="#eef2f7" stroke="#cbd5e1" stroke-width="1.2"/>
+<text x="368" y="320" font-size="13" fill="#0f172a" text-anchor="start" font-weight="600" font-family="ui-monospace,SFMono-Regular,Menlo,monospace">/v1/responses</text>
+<text x="368" y="340" font-size="11.5" fill="#475569" text-anchor="start" font-weight="normal">OpenAI Responses</text>
+<rect x="660" y="292" width="290" height="68" rx="9" fill="#eef2f7" stroke="#cbd5e1" stroke-width="1.2"/>
+<text x="674" y="320" font-size="13" fill="#0f172a" text-anchor="start" font-weight="600" font-family="ui-monospace,SFMono-Regular,Menlo,monospace">/v1/chat/completions</text>
+<text x="674" y="340" font-size="11.5" fill="#475569" text-anchor="start" font-weight="normal">OpenAI Chat</text>
+<text x="960" y="256" font-size="11.5" fill="#475569" text-anchor="end" font-weight="normal">launchd 常驻</text>
+<line x1="500" y1="378" x2="500" y2="540" stroke="#93b4f2" stroke-width="1.4" marker-end="url(#arrowB)"/>
+<rect x="30" y="543" width="940" height="120" rx="12" fill="#f5f3ff" stroke="#c4b5fd" stroke-width="1.2"/>
+<text x="48" y="573" font-size="15" fill="#5b21b6" text-anchor="start" font-weight="700">Qoder 云端 Agent API</text>
+<text x="48" y="593" font-size="12" fill="#475569" text-anchor="start" font-weight="normal" font-family="ui-monospace,SFMono-Regular,Menlo,monospace">https://api.qoder.com/api/v1/cloud/*   （Bearer: pt- 个人令牌）</text>
+<rect x="48" y="609" width="115.60000000000001" height="34" rx="8" fill="#f8fafc" stroke="#ddd6fe" stroke-width="1.2"/>
+<text x="59" y="631" font-size="11.5" fill="#5b21b6" text-anchor="start" font-weight="normal" font-family="ui-monospace,SFMono-Regular,Menlo,monospace">/environments</text>
+<rect x="173.60000000000002" y="609" width="72.4" height="34" rx="8" fill="#f8fafc" stroke="#ddd6fe" stroke-width="1.2"/>
+<text x="184.60000000000002" y="631" font-size="11.5" fill="#5b21b6" text-anchor="start" font-weight="normal" font-family="ui-monospace,SFMono-Regular,Menlo,monospace">/agents</text>
+<rect x="256.0" y="609" width="86.8" height="34" rx="8" fill="#f8fafc" stroke="#ddd6fe" stroke-width="1.2"/>
+<text x="267.0" y="631" font-size="11.5" fill="#5b21b6" text-anchor="start" font-weight="normal" font-family="ui-monospace,SFMono-Regular,Menlo,monospace">/sessions</text>
+<rect x="352.8" y="609" width="173.20000000000002" height="34" rx="8" fill="#f8fafc" stroke="#ddd6fe" stroke-width="1.2"/>
+<text x="363.8" y="631" font-size="11.5" fill="#5b21b6" text-anchor="start" font-weight="normal" font-family="ui-monospace,SFMono-Regular,Menlo,monospace">/sessions/{id}/events</text>
+<rect x="536.0" y="609" width="166.0" height="34" rx="8" fill="#f8fafc" stroke="#ddd6fe" stroke-width="1.2"/>
+<text x="547.0" y="631" font-size="11.5" fill="#5b21b6" text-anchor="start" font-weight="normal" font-family="ui-monospace,SFMono-Regular,Menlo,monospace">/events/stream (SSE)</text>
+<line x1="500" y1="663" x2="500" y2="668" stroke="#c4b5fd" stroke-width="1.4" marker-end="url(#arrow)"/>
+<rect x="320" y="668" width="360" height="28" rx="8" fill="#ffffff" stroke="#ddd6fe" stroke-width="1.2"/>
+<text x="500" y="687" font-size="12" fill="#475569" text-anchor="middle" font-weight="normal">模型：auto / dmodel / qmodel / kmodel / gmodel …</text>
+</svg>

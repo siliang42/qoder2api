@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="530" viewBox="0 0 1000 530" font-family='-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Helvetica Neue",Arial,sans-serif'>
+<rect x="0" y="0" width="1000" height="530" fill="#ffffff"/>
+<defs>
+  <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+    <path d="M0,0 L10,5 L0,10 z" fill="#94a3b8"/>
+  </marker>
+  <marker id="arrowB" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+    <path d="M0,0 L10,5 L0,10 z" fill="#2563eb"/>
+  </marker>
+</defs>
+<text x="30" y="44" font-size="18" fill="#0f172a" text-anchor="start" font-weight="700">工具名冲突与回译</text>
+<text x="30" y="68" font-size="12" fill="#475569" text-anchor="start" font-weight="normal">云端内建名（bash/read/write/…）与 mcp__ 前缀是保留的，注册时改名，回译时还原</text>
+<text x="40" y="118" font-size="13" fill="#475569" text-anchor="start" font-weight="600">客户端原始工具名</text>
+<text x="360" y="118" font-size="13" fill="#475569" text-anchor="start" font-weight="600">桥内改名规则</text>
+<text x="690" y="118" font-size="13" fill="#475569" text-anchor="start" font-weight="600">云端 agent 工具名</text>
+<rect x="40" y="134" width="280" height="48" rx="9" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1.2"/>
+<text x="54" y="163" font-size="12.5" fill="#0f172a" text-anchor="start" font-weight="normal" font-family="ui-monospace,SFMono-Regular,Menlo,monospace">Bash</text>
+<rect x="360" y="134" width="280" height="48" rx="9" fill="#ffffff" stroke="#e2e8f0" stroke-width="1.2"/>
+<text x="374" y="163" font-size="12" fill="#ea580c" text-anchor="start" font-weight="normal">内建冲突 → 加前缀</text>
+<rect x="690" y="134" width="280" height="48" rx="9" fill="#eff6ff" stroke="#93b4f2" stroke-width="1.2"/>
+<text x="704" y="163" font-size="12.5" fill="#2563eb" text-anchor="start" font-weight="normal" font-family="ui-monospace,SFMono-Regular,Menlo,monospace">cc_Bash</text>
+<rect x="40" y="192" width="280" height="48" rx="9" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1.2"/>
+<text x="54" y="221" font-size="12.5" fill="#0f172a" text-anchor="start" font-weight="normal" font-family="ui-monospace,SFMono-Regular,Menlo,monospace">Read</text>
+<rect x="360" y="192" width="280" height="48" rx="9" fill="#ffffff" stroke="#e2e8f0" stroke-width="1.2"/>
+<text x="374" y="221" font-size="12" fill="#ea580c" text-anchor="start" font-weight="normal">内建冲突 → 加前缀</text>
+<rect x="690" y="192" width="280" height="48" rx="9" fill="#eff6ff" stroke="#93b4f2" stroke-width="1.2"/>
+<text x="704" y="221" font-size="12.5" fill="#2563eb" text-anchor="start" font-weight="normal" font-family="ui-monospace,SFMono-Regular,Menlo,monospace">cc_Read</text>
+<rect x="40" y="250" width="280" height="48" rx="9" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1.2"/>
+<text x="54" y="279" font-size="12.5" fill="#0f172a" text-anchor="start" font-weight="normal" font-family="ui-monospace,SFMono-Regular,Menlo,monospace">mcp__srv__tool</text>
+<rect x="360" y="250" width="280" height="48" rx="9" fill="#ffffff" stroke="#e2e8f0" stroke-width="1.2"/>
+<text x="374" y="279" font-size="12" fill="#ea580c" text-anchor="start" font-weight="normal">保留前缀 → 加前缀</text>
+<rect x="690" y="250" width="280" height="48" rx="9" fill="#eff6ff" stroke="#93b4f2" stroke-width="1.2"/>
+<text x="704" y="279" font-size="12.5" fill="#2563eb" text-anchor="start" font-weight="normal" font-family="ui-monospace,SFMono-Regular,Menlo,monospace">cc_mcp__srv__tool</text>
+<rect x="40" y="308" width="280" height="48" rx="9" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1.2"/>
+<text x="54" y="337" font-size="12.5" fill="#0f172a" text-anchor="start" font-weight="normal" font-family="ui-monospace,SFMono-Regular,Menlo,monospace">shell</text>
+<rect x="360" y="308" width="280" height="48" rx="9" fill="#ffffff" stroke="#e2e8f0" stroke-width="1.2"/>
+<text x="374" y="337" font-size="12" fill="#16a34a" text-anchor="start" font-weight="normal">不冲突 → 原样</text>
+<rect x="690" y="308" width="280" height="48" rx="9" fill="#eff6ff" stroke="#93b4f2" stroke-width="1.2"/>
+<text x="704" y="337" font-size="12.5" fill="#2563eb" text-anchor="start" font-weight="normal" font-family="ui-monospace,SFMono-Regular,Menlo,monospace">shell</text>
+<rect x="40" y="366" width="280" height="48" rx="9" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1.2"/>
+<text x="54" y="395" font-size="12.5" fill="#0f172a" text-anchor="start" font-weight="normal" font-family="ui-monospace,SFMono-Regular,Menlo,monospace">apply_patch</text>
+<rect x="360" y="366" width="280" height="48" rx="9" fill="#ffffff" stroke="#e2e8f0" stroke-width="1.2"/>
+<text x="374" y="395" font-size="12" fill="#16a34a" text-anchor="start" font-weight="normal">不冲突 → 原样</text>
+<rect x="690" y="366" width="280" height="48" rx="9" fill="#eff6ff" stroke="#93b4f2" stroke-width="1.2"/>
+<text x="704" y="395" font-size="12.5" fill="#2563eb" text-anchor="start" font-weight="normal" font-family="ui-monospace,SFMono-Regular,Menlo,monospace">apply_patch</text>
+<line x1="326" y1="384" x2="354" y2="384" stroke="#94a3b8" stroke-width="1.4" marker-end="url(#arrow)"/>
+<line x1="646" y1="384" x2="684" y2="384" stroke="#94a3b8" stroke-width="1.4" marker-end="url(#arrow)"/>
+<rect x="40" y="438" width="920" height="58" rx="10" fill="#f0fdf4" stroke="#86efac" stroke-width="1.2"/>
+<text x="58" y="464" font-size="12.5" fill="#166534" text-anchor="start" font-weight="normal">回译（出站）：agent.custom_tool_use 里的 cc_* → 去掉前缀还原成客户端原始名</text>
+<text x="58" y="484" font-size="12" fill="#166534" text-anchor="start" font-weight="normal" font-family="ui-monospace,SFMono-Regular,Menlo,monospace">例：cloud 调用 cc_Bash(cmd=…) → 桥发出 function_call{name:"Bash"} → Claude Code 正常执行</text>
+</svg>
