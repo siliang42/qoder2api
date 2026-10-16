@@ -140,11 +140,15 @@ go build -o qoder2api ./cmd/qoder2api
 
 ## Disclaimer
 
-This project is for **educational and research purposes only**. Use at your own risk. The author is not responsible for any consequences arising from the use of this software, including but not limited to account suspension, data loss, or legal disputes.
+This project (including this fork's changes) is an **unofficial, reverse-engineered third-party tool**. It is not affiliated with, authorized by, or endorsed by Qoder or Alibaba.
 
-Do not use this project for any commercial purpose or in any way that violates the terms of service of Qoder or any third-party service.
+**It is for educational and research purposes only. Use at your own risk.** The author is not responsible for any consequences arising from the use of this software, including but not limited to account suspension, data loss, or legal disputes.
 
-Auth JSON files and token files contain live credentials. **Never commit them to version control.**
+- Do not use it commercially, or in any way that violates Qoder's or any third party's terms of service.
+- Reverse-engineered bridges may violate the upstream terms of service; **there is a risk of account restriction or suspension**. Evaluate it yourself.
+- Auth JSON / token files contain live credentials - **do not commit them to version control**. This fork writes your `pt-` token **in plaintext** into the launchd plist and local client config; mind your machine's security and backups.
+- The bridge listens on `127.0.0.1` only and **does not validate inbound API keys**. Do not expose it to your LAN or the public internet.
+- Upstream endpoints may change at any time; no availability is guaranteed.
 
 ## License
 
