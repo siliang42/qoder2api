@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
 	"strings"
 	"sync"
 
@@ -129,7 +130,14 @@ func (b *cloudBackend) Stream(ctx context.Context, req CompleteRequest) (Stream,
 	if err := b.sendMessage(ctx, sessionID, req); err != nil {
 		return nil, err
 	}
-	return b.openStream(ctx, sessionID, agent.reverse)
+	stream, err := b.openStream(ctx, sessionID, agent.reverse)
+	if err != nil {
+		return nil, err
+	}
+	if rawJSONIsEmpty(req.Tools) {
+		return stream, nil
+	}
+	return newBufferedStream(stream), nil
 }
 
 func (b *cloudBackend) ensureResources(ctx context.Context, model string, tools json.RawMessage) (*cloudAgentEntry, error) {
@@ -554,4 +562,170 @@ func mustJSON(v any) string {
 		return "{}"
 	}
 	return string(buf)
+}
+
+// bufferedStream 把上游事件聚合成一个事件再下发。
+// 目的：Qoder 的模型偶尔会把工具调用当文本吐出来（<antml:function_calls> / <tool_call>），
+// 需要在整段文本拿到后做一次回退解析，否则工具调用会被当成普通文本丢掉、agent 直接空转。
+type bufferedStream struct {
+	inner     Stream
+	content   strings.Builder
+	reasoning strings.Builder
+	toolCalls json.RawMessage
+	usage     *protocol.Usage
+	emitted   bool
+}
+
+func newBufferedStream(inner Stream) Stream {
+	return &bufferedStream{inner: inner}
+}
+
+func (s *bufferedStream) Next() (protocol.DeltaEvent, error) {
+	if s.emitted {
+		return protocol.DeltaEvent{Done: true}, nil
+	}
+	for {
+		event, err := s.inner.Next()
+		if err != nil {
+			return protocol.DeltaEvent{}, err
+		}
+		if event.Done {
+			break
+		}
+		if event.Content != "" {
+			s.content.WriteString(event.Content)
+		}
+		if event.Reasoning != "" {
+			s.reasoning.WriteString(event.Reasoning)
+		}
+		if !rawJSONIsEmpty(event.ToolCalls) {
+			s.toolCalls = event.ToolCalls
+		}
+		if event.Usage != nil {
+			s.usage = event.Usage
+		}
+	}
+	s.emitted = true
+
+	text := s.content.String()
+	toolCalls := s.toolCalls
+	if rawJSONIsEmpty(toolCalls) {
+		if parsed, cleaned, ok := parseTextToolCalls(text); ok {
+			toolCalls = parsed
+			text = cleaned
+		}
+	}
+	return protocol.DeltaEvent{
+		Content:   text,
+		Reasoning: s.reasoning.String(),
+		ToolCalls: toolCalls,
+		Usage:     s.usage,
+	}, nil
+}
+
+func (s *bufferedStream) Close() error {
+	return s.inner.Close()
+}
+
+var (
+	textInvokeRe   = regexp.MustCompile(`(?s)<(?:antml:)?invoke\s+name="([^"]+)"\s*>(.*?)</(?:antml:)?invoke>`)
+	textParamRe    = regexp.MustCompile(`(?s)<(?:antml:)?parameter\s+name="([^"]+)"\s*>(.*?)</(?:antml:)?parameter>`)
+	textToolCallRe = regexp.MustCompile(`(?s)<tool_call>\s*([A-Za-z0-9_.\-]+)(.*?)</tool_call>`)
+	textArgValueRe = regexp.MustCompile(`(?s)<arg_value>(.*?)</arg_value>`)
+	textWrapperRe  = regexp.MustCompile(`<(?:[A-Za-z0-9_]+:)?(?:function_calls|tool_calls)>`)
+	toolArgKeyRe   = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_\-]*$`)
+)
+
+// parseTextToolCalls 从模型泄漏的文本里回退解析工具调用，返回 tool_calls JSON、
+// 去掉泄漏块后的正文，以及是否解析成功。
+func parseTextToolCalls(text string) (json.RawMessage, string, bool) {
+	calls := []map[string]any{}
+	cutAt := -1
+	note := func(idx int) {
+		if cutAt < 0 || idx < cutAt {
+			cutAt = idx
+		}
+	}
+
+	if m := textWrapperRe.FindStringIndex(text); m != nil {
+		note(m[0])
+	}
+	for _, m := range textInvokeRe.FindAllStringSubmatchIndex(text, -1) {
+		name := text[m[2]:m[3]]
+		body := ""
+		if m[4] >= 0 {
+			body = text[m[4]:m[5]]
+		}
+		args := map[string]any{}
+		for _, pm := range textParamRe.FindAllStringSubmatch(body, -1) {
+			args[pm[1]] = pm[2]
+		}
+		raw, _ := json.Marshal(args)
+		calls = append(calls, toolCallItem(name, string(raw)))
+		note(m[0])
+	}
+	if len(calls) == 0 {
+		for _, m := range textToolCallRe.FindAllStringSubmatchIndex(text, -1) {
+			name := text[m[2]:m[3]]
+			body := ""
+			if m[4] >= 0 {
+				body = text[m[4]:m[5]]
+			}
+			raw, _ := json.Marshal(parseArgValues(body))
+			calls = append(calls, toolCallItem(name, string(raw)))
+			note(m[0])
+		}
+	}
+	if len(calls) == 0 {
+		return nil, text, false
+	}
+	out, _ := json.Marshal(calls)
+	cleaned := text
+	if cutAt > 0 {
+		cleaned = strings.TrimSpace(text[:cutAt])
+	} else if cutAt == 0 {
+		cleaned = ""
+	}
+	return out, cleaned, true
+}
+
+func toolCallItem(name, args string) map[string]any {
+	return map[string]any{
+		"id":   "call_" + randomHex(12),
+		"type": "function",
+		"function": map[string]any{
+			"name":      name,
+			"arguments": args,
+		},
+	}
+}
+
+func parseArgValues(body string) map[string]any {
+	args := map[string]any{}
+	for _, m := range textArgValueRe.FindAllStringSubmatch(body, -1) {
+		if key, value, ok := splitKeyValue(m[1]); ok {
+			args[key] = value
+		}
+	}
+	rest := textArgValueRe.ReplaceAllString(body, "\n")
+	for _, line := range strings.Split(rest, "\n") {
+		if key, value, ok := splitKeyValue(line); ok {
+			args[key] = value
+		}
+	}
+	return args
+}
+
+func splitKeyValue(s string) (string, string, bool) {
+	s = strings.TrimSpace(strings.Trim(s, "`"))
+	idx := strings.Index(s, ":")
+	if idx <= 0 || idx > 40 {
+		return "", "", false
+	}
+	key := strings.TrimSpace(s[:idx])
+	value := strings.TrimSpace(s[idx+1:])
+	if key == "" || value == "" || !toolArgKeyRe.MatchString(key) {
+		return "", "", false
+	}
+	return key, value, true
 }

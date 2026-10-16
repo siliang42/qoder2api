@@ -45,3 +45,45 @@ func TestNormalizeModelFallsBackForUnknown(t *testing.T) {
 		t.Errorf("known model should pass through, got %q", got)
 	}
 }
+
+func TestParseTextToolCallsAntml(t *testing.T) {
+	text := "先跑一下。\n<antml:function_calls>\n<antml:invoke name=\"exec_command\">\n<antml:parameter name=\"cmd\">echo hi</antml:parameter>\n</antml:invoke>\n</antml:function_calls>"
+	raw, cleaned, ok := parseTextToolCalls(text)
+	if !ok {
+		t.Fatal("expected parse success")
+	}
+	calls := ParseToolCallDeltas(raw)
+	if len(calls) != 1 || calls[0].FunctionName != "exec_command" {
+		t.Fatalf("unexpected calls: %+v", calls)
+	}
+	if calls[0].ArgumentsFragment != `{"cmd":"echo hi"}` {
+		t.Fatalf("unexpected args: %s", calls[0].ArgumentsFragment)
+	}
+	if cleaned != "先跑一下。" {
+		t.Fatalf("leaked block should be stripped, got %q", cleaned)
+	}
+}
+
+func TestParseTextToolCallsToolCallTag(t *testing.T) {
+	text := "<tool_call>exec_command\n<arg_value>cmd: echo bridge-ok</arg_value>yield_time_ms: 10000</tool_call>"
+	raw, cleaned, ok := parseTextToolCalls(text)
+	if !ok {
+		t.Fatal("expected parse success")
+	}
+	calls := ParseToolCallDeltas(raw)
+	if len(calls) != 1 || calls[0].FunctionName != "exec_command" {
+		t.Fatalf("unexpected calls: %+v", calls)
+	}
+	if cleaned != "" {
+		t.Fatalf("expected empty cleaned text, got %q", cleaned)
+	}
+	if calls[0].ArgumentsFragment != `{"cmd":"echo bridge-ok","yield_time_ms":"10000"}` {
+		t.Fatalf("unexpected args: %s", calls[0].ArgumentsFragment)
+	}
+}
+
+func TestParseTextToolCallsPlainText(t *testing.T) {
+	if _, _, ok := parseTextToolCalls("这就是一段普通回答，没有工具调用。"); ok {
+		t.Fatal("plain text should not parse as tool calls")
+	}
+}
