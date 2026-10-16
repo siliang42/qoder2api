@@ -4,10 +4,12 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
 	"strings"
 	"sync"
 
@@ -23,7 +25,16 @@ type cloudBackend struct {
 
 	mu            sync.Mutex
 	environmentID string
-	agentID       string
+	agents        map[string]*cloudAgentEntry
+}
+
+// cloudAgentEntry 缓存按“客户端工具集”建立的云端 agent。
+// reverse 是“云端工具名 -> 客户端原始工具名”的回译表：云端内建名会和客户端工具名冲突
+// （实测 Claude Code 的 Bash/Read/Write/Edit/Glob/Grep/WebFetch 都冲突），注册时改名，
+// 回译时还原成客户端认识的名字。
+type cloudAgentEntry struct {
+	id      string
+	reverse map[string]string
 }
 
 type cloudListResponse[T any] struct {
@@ -48,6 +59,7 @@ type cloudEventStream struct {
 	resp     *http.Response
 	scanner  *bufio.Scanner
 	lastType string
+	reverse  map[string]string
 }
 
 func (b *cloudBackend) Capabilities() Capabilities {
@@ -61,6 +73,7 @@ func NewCloudBackend(opts Options, client *http.Client) Backend {
 		defaultModel:  opts.DefaultModel,
 		workspaceRoot: opts.WorkspaceRoot,
 		client:        client,
+		agents:        map[string]*cloudAgentEntry{},
 	}
 }
 
@@ -105,39 +118,54 @@ func (b *cloudBackend) Complete(ctx context.Context, req CompleteRequest) (Compl
 }
 
 func (b *cloudBackend) Stream(ctx context.Context, req CompleteRequest) (Stream, error) {
-	if err := b.ensureResources(ctx, req.Model); err != nil {
+	agent, err := b.ensureResources(ctx, req.Model, req.Tools)
+	if err != nil {
 		return nil, err
 	}
 
-	sessionID, err := b.createSession(ctx)
+	sessionID, err := b.createSession(ctx, agent.id)
 	if err != nil {
 		return nil, err
 	}
 	if err := b.sendMessage(ctx, sessionID, req); err != nil {
 		return nil, err
 	}
-	return b.openStream(ctx, sessionID)
+	stream, err := b.openStream(ctx, sessionID, agent.reverse)
+	if err != nil {
+		return nil, err
+	}
+	if rawJSONIsEmpty(req.Tools) {
+		return stream, nil
+	}
+	return newBufferedStream(stream), nil
 }
 
-func (b *cloudBackend) ensureResources(ctx context.Context, model string) error {
+func (b *cloudBackend) ensureResources(ctx context.Context, model string, tools json.RawMessage) (*cloudAgentEntry, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
 	if b.environmentID == "" {
 		envID, err := b.ensureEnvironment(ctx)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		b.environmentID = envID
 	}
-	if b.agentID == "" {
-		agentID, err := b.createAgent(ctx, model)
-		if err != nil {
-			return err
-		}
-		b.agentID = agentID
+	if b.agents == nil {
+		b.agents = map[string]*cloudAgentEntry{}
 	}
-	return nil
+	cloudTools, reverse := cloudToolsFromRequest(tools)
+	sig := agentSignature(model, cloudTools)
+	if entry, ok := b.agents[sig]; ok {
+		return entry, nil
+	}
+	id, err := b.createAgent(ctx, model, cloudTools)
+	if err != nil {
+		return nil, err
+	}
+	entry := &cloudAgentEntry{id: id, reverse: reverse}
+	b.agents[sig] = entry
+	return entry, nil
 }
 
 func (b *cloudBackend) ensureEnvironment(ctx context.Context) (string, error) {
@@ -167,26 +195,25 @@ func (b *cloudBackend) ensureEnvironment(ctx context.Context) (string, error) {
 	return created.ID, nil
 }
 
-func (b *cloudBackend) createAgent(ctx context.Context, model string) (string, error) {
-	if strings.TrimSpace(model) == "" {
-		model = b.defaultModel
-	}
+func (b *cloudBackend) createAgent(ctx context.Context, model string, tools []map[string]any) (string, error) {
+	model = normalizeModel(model, b.defaultModel)
 
 	instructions := strings.TrimSpace(`
 You are an efficient programming assistant.
 Reply concisely and correctly.
 When the user supplies chat history, treat the provided transcript as authoritative context.
 If the task is coding-related, prefer concrete patches, commands, and implementation details.
+Use the provided tools to inspect and modify the workspace whenever the task requires it.
+Only call tools that are explicitly provided in this request; never invent tool names.
 `)
 
 	body := map[string]any{
 		"name":   "qoder2api-go-bridge",
 		"model":  model,
 		"system": instructions,
-		"tools": []map[string]any{
-			{"type": "bash_20250124"},
-			{"type": "text_editor_20250124"},
-		},
+	}
+	if len(tools) > 0 {
+		body["tools"] = tools
 	}
 	var created cloudAgent
 	if err := b.postJSON(ctx, "/agents", body, &created); err != nil {
@@ -195,9 +222,122 @@ If the task is coding-related, prefer concrete patches, commands, and implementa
 	return created.ID, nil
 }
 
-func (b *cloudBackend) createSession(ctx context.Context) (string, error) {
+// Qoder 云端 Agent API 只接受官方模型 key；Codex / Claude Code 等客户端发来的
+// 模型名（如 claude-sonnet-5、gpt-*）不属于此列，需要回落到默认模型。
+var knownQoderModels = map[string]bool{
+	"auto": true, "ultimate": true, "fast": true, "performance": true,
+	"efficient": true, "smodel": true, "cmodel": true, "qmodel_38max": true,
+	"qfmodel": true, "qmodel_latest": true, "qmodel": true, "kmodel_latest": true,
+	"kmodel": true, "gmodel": true, "gfmodel": true, "dmodel": true,
+	"dfmodel": true, "mmodel": true,
+}
+
+func normalizeModel(requested, fallback string) string {
+	m := strings.TrimSpace(requested)
+	if m != "" && knownQoderModels[strings.ToLower(m)] {
+		return m
+	}
+	return fallback
+}
+
+// Qoder 云端 Agent 自带的工具名；注册客户端工具时若重名需改名。
+var builtinCloudToolNames = map[string]bool{
+	"bash": true, "read": true, "write": true, "edit": true, "glob": true,
+	"grep": true, "webfetch": true, "web_search": true, "websearch": true,
+}
+
+// cloudToolsFromRequest 把客户端工具定义（OpenAI function 形状）转成云端 custom tool，
+// 并返回“云端名 -> 客户端原名”的回译表。
+func cloudToolsFromRequest(raw json.RawMessage) ([]map[string]any, map[string]string) {
+	if rawJSONIsEmpty(raw) {
+		return nil, nil
+	}
+	var items []map[string]any
+	if err := json.Unmarshal(raw, &items); err != nil {
+		return nil, nil
+	}
+	tools := make([]map[string]any, 0, len(items))
+	reverse := map[string]string{}
+	used := map[string]bool{}
+	for _, item := range items {
+		name, desc, schema := toolNameDescSchema(item)
+		name = sanitizeToolName(name)
+		if name == "" {
+			continue
+		}
+		safe := name
+		lower := strings.ToLower(safe)
+		if builtinCloudToolNames[lower] || used[safe] || strings.HasPrefix(lower, "mcp__") {
+			safe = "cc_" + name
+			for used[safe] {
+				safe += "_"
+			}
+		}
+		used[safe] = true
+		if safe != name {
+			reverse[safe] = name
+		}
+		tools = append(tools, map[string]any{
+			"type":         "custom",
+			"name":         safe,
+			"description":  desc,
+			"input_schema": schema,
+		})
+	}
+	if len(tools) == 0 {
+		return nil, nil
+	}
+	return tools, reverse
+}
+
+func toolNameDescSchema(item map[string]any) (string, string, any) {
+	if fn, ok := item["function"].(map[string]any); ok {
+		schema := fn["parameters"]
+		if schema == nil {
+			schema = objectSchema()
+		}
+		return stringValue(fn["name"]), stringValue(fn["description"]), schema
+	}
+	schema := item["input_schema"]
+	if schema == nil {
+		schema = item["parameters"]
+	}
+	if schema == nil {
+		schema = objectSchema()
+	}
+	return stringValue(item["name"]), stringValue(item["description"]), schema
+}
+
+func objectSchema() map[string]any {
+	return map[string]any{"type": "object", "properties": map[string]any{}}
+}
+
+func sanitizeToolName(name string) string {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return ""
+	}
+	var sb strings.Builder
+	for _, r := range name {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '_', r == '-':
+			sb.WriteRune(r)
+		default:
+			sb.WriteRune('_')
+		}
+	}
+	return sb.String()
+}
+
+func agentSignature(model string, tools []map[string]any) string {
+	buf, _ := json.Marshal(tools)
+	sum := sha256.Sum256(append([]byte(model+"\x00"), buf...))
+	return fmt.Sprintf("%x", sum[:8])
+}
+
+func (b *cloudBackend) createSession(ctx context.Context, agentID string) (string, error) {
 	body := map[string]any{
-		"agent":          b.agentID,
+		"agent":          agentID,
 		"environment_id": b.environmentID,
 	}
 	if b.workspaceRoot != "" {
@@ -216,13 +356,13 @@ func (b *cloudBackend) sendMessage(ctx context.Context, sessionID string, req Co
 	body := map[string]any{
 		"events": []map[string]any{{
 			"type":    "user.message",
-			"content": renderPrompt(req),
+			"content": []any{map[string]any{"type": "text", "text": renderPrompt(req)}},
 		}},
 	}
 	return b.postJSON(ctx, "/sessions/"+sessionID+"/events", body, nil)
 }
 
-func (b *cloudBackend) openStream(ctx context.Context, sessionID string) (Stream, error) {
+func (b *cloudBackend) openStream(ctx context.Context, sessionID string, reverse map[string]string) (Stream, error) {
 	url := b.baseURL + "/sessions/" + sessionID + "/events/stream"
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
@@ -241,7 +381,7 @@ func (b *cloudBackend) openStream(ctx context.Context, sessionID string) (Stream
 	}
 	scanner := bufio.NewScanner(resp.Body)
 	scanner.Buffer(make([]byte, 0, 64*1024), 2*1024*1024)
-	return &cloudEventStream{resp: resp, scanner: scanner}, nil
+	return &cloudEventStream{resp: resp, scanner: scanner, reverse: reverse}, nil
 }
 
 func (s *cloudEventStream) Next() (protocol.DeltaEvent, error) {
@@ -259,7 +399,7 @@ func (s *cloudEventStream) Next() (protocol.DeltaEvent, error) {
 			continue
 		}
 		if line == "" && (eventType != "" || dataLine != "") {
-			return parseCloudEvent(eventType, dataLine)
+			return parseCloudEvent(eventType, dataLine, s.reverse)
 		}
 	}
 	if err := s.scanner.Err(); err != nil {
@@ -272,14 +412,14 @@ func (s *cloudEventStream) Close() error {
 	return s.resp.Body.Close()
 }
 
-func parseCloudEvent(eventType, dataLine string) (protocol.DeltaEvent, error) {
+func parseCloudEvent(eventType, dataLine string, reverse map[string]string) (protocol.DeltaEvent, error) {
 	if eventType == "session.status_idle" || eventType == "terminated" {
 		return protocol.DeltaEvent{Done: true}, nil
 	}
 	if eventType == "session.error" {
 		return protocol.DeltaEvent{}, fmt.Errorf("session error: %s", dataLine)
 	}
-	if eventType != "agent.message" && eventType != "agent.tool_use" {
+	if eventType != "agent.message" && eventType != "agent.tool_use" && eventType != "agent.custom_tool_use" {
 		return protocol.DeltaEvent{}, nil
 	}
 
@@ -292,8 +432,11 @@ func parseCloudEvent(eventType, dataLine string) (protocol.DeltaEvent, error) {
 		return protocol.DeltaEvent{
 			Content: normalizeContent(payload["content"]),
 		}, nil
-	case "agent.tool_use":
+	case "agent.tool_use", "agent.custom_tool_use":
 		name := stringValue(payload["name"])
+		if orig, ok := reverse[name]; ok {
+			name = orig
+		}
 		input := payload["input"]
 		call := []map[string]any{{
 			"id":   "call_" + randomHex(12),
@@ -369,13 +512,20 @@ func renderPrompt(req CompleteRequest) string {
 		sb.WriteString("\n[")
 		sb.WriteString(role)
 		sb.WriteString("]\n")
-		sb.WriteString(normalizeContent(msg.Content))
-		sb.WriteString("\n")
-	}
-	if !rawJSONIsEmpty(req.Tools) {
-		sb.WriteString("\nAvailable tool schema from the caller:\n")
-		sb.Write(req.Tools)
-		sb.WriteString("\nIf tool use is necessary, emit structured tool-use actions when supported by the runtime.\n")
+		if !rawJSONIsEmpty(msg.ToolCalls) {
+			sb.WriteString("tool_calls: ")
+			sb.Write(msg.ToolCalls)
+			sb.WriteString("\n")
+		}
+		if msg.ToolCallID != "" {
+			sb.WriteString("tool_call_id: ")
+			sb.WriteString(msg.ToolCallID)
+			sb.WriteString("\n")
+		}
+		if content := normalizeContent(msg.Content); content != "" {
+			sb.WriteString(content)
+			sb.WriteString("\n")
+		}
 	}
 	sb.WriteString("\nRespond to the latest user request using the transcript above.")
 	return sb.String()
@@ -412,4 +562,170 @@ func mustJSON(v any) string {
 		return "{}"
 	}
 	return string(buf)
+}
+
+// bufferedStream 把上游事件聚合成一个事件再下发。
+// 目的：Qoder 的模型偶尔会把工具调用当文本吐出来（<antml:function_calls> / <tool_call>），
+// 需要在整段文本拿到后做一次回退解析，否则工具调用会被当成普通文本丢掉、agent 直接空转。
+type bufferedStream struct {
+	inner     Stream
+	content   strings.Builder
+	reasoning strings.Builder
+	toolCalls json.RawMessage
+	usage     *protocol.Usage
+	emitted   bool
+}
+
+func newBufferedStream(inner Stream) Stream {
+	return &bufferedStream{inner: inner}
+}
+
+func (s *bufferedStream) Next() (protocol.DeltaEvent, error) {
+	if s.emitted {
+		return protocol.DeltaEvent{Done: true}, nil
+	}
+	for {
+		event, err := s.inner.Next()
+		if err != nil {
+			return protocol.DeltaEvent{}, err
+		}
+		if event.Done {
+			break
+		}
+		if event.Content != "" {
+			s.content.WriteString(event.Content)
+		}
+		if event.Reasoning != "" {
+			s.reasoning.WriteString(event.Reasoning)
+		}
+		if !rawJSONIsEmpty(event.ToolCalls) {
+			s.toolCalls = event.ToolCalls
+		}
+		if event.Usage != nil {
+			s.usage = event.Usage
+		}
+	}
+	s.emitted = true
+
+	text := s.content.String()
+	toolCalls := s.toolCalls
+	if rawJSONIsEmpty(toolCalls) {
+		if parsed, cleaned, ok := parseTextToolCalls(text); ok {
+			toolCalls = parsed
+			text = cleaned
+		}
+	}
+	return protocol.DeltaEvent{
+		Content:   text,
+		Reasoning: s.reasoning.String(),
+		ToolCalls: toolCalls,
+		Usage:     s.usage,
+	}, nil
+}
+
+func (s *bufferedStream) Close() error {
+	return s.inner.Close()
+}
+
+var (
+	textInvokeRe   = regexp.MustCompile(`(?s)<(?:antml:)?invoke\s+name="([^"]+)"\s*>(.*?)</(?:antml:)?invoke>`)
+	textParamRe    = regexp.MustCompile(`(?s)<(?:antml:)?parameter\s+name="([^"]+)"\s*>(.*?)</(?:antml:)?parameter>`)
+	textToolCallRe = regexp.MustCompile(`(?s)<tool_call>\s*([A-Za-z0-9_.\-]+)(.*?)</tool_call>`)
+	textArgValueRe = regexp.MustCompile(`(?s)<arg_value>(.*?)</arg_value>`)
+	textWrapperRe  = regexp.MustCompile(`<(?:[A-Za-z0-9_]+:)?(?:function_calls|tool_calls)>`)
+	toolArgKeyRe   = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_\-]*$`)
+)
+
+// parseTextToolCalls 从模型泄漏的文本里回退解析工具调用，返回 tool_calls JSON、
+// 去掉泄漏块后的正文，以及是否解析成功。
+func parseTextToolCalls(text string) (json.RawMessage, string, bool) {
+	calls := []map[string]any{}
+	cutAt := -1
+	note := func(idx int) {
+		if cutAt < 0 || idx < cutAt {
+			cutAt = idx
+		}
+	}
+
+	if m := textWrapperRe.FindStringIndex(text); m != nil {
+		note(m[0])
+	}
+	for _, m := range textInvokeRe.FindAllStringSubmatchIndex(text, -1) {
+		name := text[m[2]:m[3]]
+		body := ""
+		if m[4] >= 0 {
+			body = text[m[4]:m[5]]
+		}
+		args := map[string]any{}
+		for _, pm := range textParamRe.FindAllStringSubmatch(body, -1) {
+			args[pm[1]] = pm[2]
+		}
+		raw, _ := json.Marshal(args)
+		calls = append(calls, toolCallItem(name, string(raw)))
+		note(m[0])
+	}
+	if len(calls) == 0 {
+		for _, m := range textToolCallRe.FindAllStringSubmatchIndex(text, -1) {
+			name := text[m[2]:m[3]]
+			body := ""
+			if m[4] >= 0 {
+				body = text[m[4]:m[5]]
+			}
+			raw, _ := json.Marshal(parseArgValues(body))
+			calls = append(calls, toolCallItem(name, string(raw)))
+			note(m[0])
+		}
+	}
+	if len(calls) == 0 {
+		return nil, text, false
+	}
+	out, _ := json.Marshal(calls)
+	cleaned := text
+	if cutAt > 0 {
+		cleaned = strings.TrimSpace(text[:cutAt])
+	} else if cutAt == 0 {
+		cleaned = ""
+	}
+	return out, cleaned, true
+}
+
+func toolCallItem(name, args string) map[string]any {
+	return map[string]any{
+		"id":   "call_" + randomHex(12),
+		"type": "function",
+		"function": map[string]any{
+			"name":      name,
+			"arguments": args,
+		},
+	}
+}
+
+func parseArgValues(body string) map[string]any {
+	args := map[string]any{}
+	for _, m := range textArgValueRe.FindAllStringSubmatch(body, -1) {
+		if key, value, ok := splitKeyValue(m[1]); ok {
+			args[key] = value
+		}
+	}
+	rest := textArgValueRe.ReplaceAllString(body, "\n")
+	for _, line := range strings.Split(rest, "\n") {
+		if key, value, ok := splitKeyValue(line); ok {
+			args[key] = value
+		}
+	}
+	return args
+}
+
+func splitKeyValue(s string) (string, string, bool) {
+	s = strings.TrimSpace(strings.Trim(s, "`"))
+	idx := strings.Index(s, ":")
+	if idx <= 0 || idx > 40 {
+		return "", "", false
+	}
+	key := strings.TrimSpace(s[:idx])
+	value := strings.TrimSpace(s[idx+1:])
+	if key == "" || value == "" || !toolArgKeyRe.MatchString(key) {
+		return "", "", false
+	}
+	return key, value, true
 }

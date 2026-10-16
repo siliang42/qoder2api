@@ -140,12 +140,61 @@ go build -o qoder2api ./cmd/qoder2api
 
 ## Disclaimer
 
-This project is for **educational and research purposes only**. Use at your own risk. The author is not responsible for any consequences arising from the use of this software, including but not limited to account suspension, data loss, or legal disputes.
+This project (including this fork's changes) is an **unofficial, reverse-engineered third-party tool**. It is not affiliated with, authorized by, or endorsed by Qoder or Alibaba.
 
-Do not use this project for any commercial purpose or in any way that violates the terms of service of Qoder or any third-party service.
+**It is for educational and research purposes only. Use at your own risk.** The author is not responsible for any consequences arising from the use of this software, including but not limited to account suspension, data loss, or legal disputes.
 
-Auth JSON files and token files contain live credentials. **Never commit them to version control.**
+- Do not use it commercially, or in any way that violates Qoder's or any third party's terms of service.
+- Reverse-engineered bridges may violate the upstream terms of service; **there is a risk of account restriction or suspension**. Evaluate it yourself.
+- Auth JSON / token files contain live credentials - **do not commit them to version control**. This fork writes your `pt-` token **in plaintext** into the launchd plist and local client config; mind your machine's security and backups.
+- The bridge listens on `127.0.0.1` only and **does not validate inbound API keys**. Do not expose it to your LAN or the public internet.
+- Upstream endpoints may change at any time; no availability is guaranteed.
 
 ## License
 
 [MIT](LICENSE)
+
+
+## Fork: how it works
+
+This fork makes the bridge actually usable with **Claude Code CLI** and **Codex CLI** by fixing the tool-calling path. Full write-up (Chinese, with diagrams): [README_CN.md](README_CN.md).
+
+![Architecture](docs/img/architecture.svg)
+
+The bridge exposes three endpoints on `127.0.0.1:8963` and talks to Qoder's Cloud Agents API (`https://api.qoder.com/api/v1/cloud/*`) using your `pt-` personal token.
+
+![Tool call loop](docs/img/tool-loop.svg)
+
+1. The client sends `tools` with each request.
+2. The bridge creates (or reuses) a cloud agent whose custom tools mirror the client's tool set, cached by `sha256(model + tools)[:8]`.
+3. The bridge opens a session and sends the transcript as a `user.message`.
+4. The cloud replies with `agent.custom_tool_use {name, input}` (the event name is `custom_tool_use`, not `tool_use`).
+5. The bridge translates it back to `function_call` / `tool_use` for the client.
+6. The client executes the tool locally and posts the result back; the bridge starts a new session with the full transcript (including `tool_calls` / `tool_call_id`).
+
+![Tool name mapping](docs/img/tool-name-map.svg)
+
+Cloud builtin names (`bash/read/write/edit/glob/grep/webfetch/web_search`) and the `mcp__` prefix are reserved, so conflicting tool names are registered with a `cc_` prefix and renamed back on the way out.
+
+![Text leak fallback](docs/img/text-leak-fallback.svg)
+
+Qoder's model occasionally prints the tool call as text (`<antml:function_calls>`, `<tool_call>`). When the request carries tools, the bridge aggregates the turn and, if no structured `tool_calls` arrived, parses them out of the text and strips the leaked block. As a trade-off, tool turns are not token-streamed; plain chat still streams.
+
+Unknown model names (`claude-*`, `gpt-*`) fall back to `QODER_MODEL` (default `auto`).
+
+### Claude Code CLI
+
+```bash
+scripts/claude.sh -p "write a file with bash and read it back"
+```
+
+### Codex CLI
+
+```bash
+scripts/codex.sh exec "run echo hi with shell"
+```
+
+### Verified
+
+- `codex exec`: real shell execution, file write and read-back (repeatedly).
+- `claude -p`: file write and read-back via the Bash tool (repeatedly).

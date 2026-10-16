@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1060" height="800" viewBox="0 0 1060 800" font-family='-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Helvetica Neue",Arial,sans-serif'>
+<rect x="0" y="0" width="1060" height="800" fill="#ffffff"/>
+<defs>
+  <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+    <path d="M0,0 L10,5 L0,10 z" fill="#94a3b8"/>
+  </marker>
+  <marker id="arrowB" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+    <path d="M0,0 L10,5 L0,10 z" fill="#2563eb"/>
+  </marker>
+</defs>
+<text x="30" y="44" font-size="18" fill="#0f172a" text-anchor="start" font-weight="700">工具调用回路（Codex / Claude 通用）</text>
+<text x="30" y="68" font-size="12" fill="#475569" text-anchor="start" font-weight="normal">客户端请求里带 tools；桥把它们注册成云端 custom tool，再把 tool_use 回译给客户端执行</text>
+<rect x="95" y="112" width="190" height="40" rx="9" fill="#eef2f7" stroke="#cbd5e1" stroke-width="1.2"/>
+<text x="190" y="138" font-size="13" fill="#0f172a" text-anchor="middle" font-weight="600">客户端 CLI</text>
+<line x1="190" y1="152" x2="190" y2="752" stroke="#94a3b8" stroke-width="1.1" stroke-dasharray="5 6"/>
+<rect x="465" y="112" width="190" height="40" rx="9" fill="#eef2f7" stroke="#cbd5e1" stroke-width="1.2"/>
+<text x="560" y="138" font-size="13" fill="#0f172a" text-anchor="middle" font-weight="600">本地桥 :8963</text>
+<line x1="560" y1="152" x2="560" y2="752" stroke="#94a3b8" stroke-width="1.1" stroke-dasharray="5 6"/>
+<rect x="805" y="112" width="190" height="40" rx="9" fill="#eef2f7" stroke="#cbd5e1" stroke-width="1.2"/>
+<text x="900" y="138" font-size="13" fill="#0f172a" text-anchor="middle" font-weight="600">Qoder 云端</text>
+<line x1="900" y1="152" x2="900" y2="752" stroke="#94a3b8" stroke-width="1.1" stroke-dasharray="5 6"/>
+<line x1="190" y1="196" x2="560" y2="196" stroke="#94a3b8" stroke-width="1.4" marker-end="url(#arrow)"/>
+<rect x="252.6" y="172" width="244.8" height="22" rx="6" fill="#ffffff" stroke="#e2e8f0" stroke-width="1"/>
+<text x="375.0" y="187" font-size="11.5" fill="#2563eb" text-anchor="middle" font-weight="normal">1. POST /v1/responses  {input, tools}</text>
+<path d="M 560 250 h 46" fill="none" stroke="#94a3b8" stroke-width="1.4" marker-end="url(#arrow)"/>
+<path d="M 606 250 h -46" fill="none" stroke="#94a3b8" stroke-width="1.4"/>
+<text x="618" y="254" font-size="11.5" fill="#16a34a" text-anchor="start" font-weight="normal">2. 按工具集建/取 agent（custom tools）</text>
+<line x1="560" y1="304" x2="900" y2="304" stroke="#94a3b8" stroke-width="1.4" marker-end="url(#arrow)"/>
+<rect x="625.6" y="280" width="208.8" height="22" rx="6" fill="#ffffff" stroke="#e2e8f0" stroke-width="1"/>
+<text x="730.0" y="295" font-size="11.5" fill="#7c3aed" text-anchor="middle" font-weight="normal">3. create session + user.message</text>
+<line x1="900" y1="358" x2="560" y2="358" stroke="#94a3b8" stroke-width="1.4" marker-end="url(#arrow)"/>
+<rect x="604.0" y="334" width="252.0" height="22" rx="6" fill="#ffffff" stroke="#e2e8f0" stroke-width="1"/>
+<text x="730.0" y="349" font-size="11.5" fill="#ea580c" text-anchor="middle" font-weight="normal">4. agent.custom_tool_use {name, input}</text>
+<line x1="560" y1="412" x2="190" y2="412" stroke="#94a3b8" stroke-width="1.4" marker-end="url(#arrow)"/>
+<rect x="288.6" y="388" width="172.8" height="22" rx="6" fill="#ffffff" stroke="#e2e8f0" stroke-width="1"/>
+<text x="375.0" y="403" font-size="11.5" fill="#0f172a" text-anchor="middle" font-weight="normal">5. function_call / tool_use</text>
+<path d="M 190 466 h 46" fill="none" stroke="#94a3b8" stroke-width="1.4" marker-end="url(#arrow)"/>
+<path d="M 236 466 h -46" fill="none" stroke="#94a3b8" stroke-width="1.4"/>
+<text x="248" y="470" font-size="11.5" fill="#16a34a" text-anchor="start" font-weight="normal">6. 客户端本地执行工具</text>
+<line x1="190" y1="520" x2="560" y2="520" stroke="#94a3b8" stroke-width="1.4" marker-end="url(#arrow)"/>
+<rect x="223.79999999999998" y="496" width="302.40000000000003" height="22" rx="6" fill="#ffffff" stroke="#e2e8f0" stroke-width="1"/>
+<text x="375.0" y="511" font-size="11.5" fill="#2563eb" text-anchor="middle" font-weight="normal">7. POST /v1/responses  {function_call_output}</text>
+<line x1="560" y1="574" x2="900" y2="574" stroke="#94a3b8" stroke-width="1.4" marker-end="url(#arrow)"/>
+<rect x="640.0" y="550" width="180.0" height="22" rx="6" fill="#ffffff" stroke="#e2e8f0" stroke-width="1"/>
+<text x="730.0" y="565" font-size="11.5" fill="#7c3aed" text-anchor="middle" font-weight="normal">8. 新 session + 完整 transcript</text>
+<line x1="900" y1="628" x2="560" y2="628" stroke="#94a3b8" stroke-width="1.4" marker-end="url(#arrow)"/>
+<rect x="660.0" y="604" width="150" height="22" rx="6" fill="#ffffff" stroke="#e2e8f0" stroke-width="1"/>
+<text x="730.0" y="619" font-size="11.5" fill="#ea580c" text-anchor="middle" font-weight="normal">9. agent.message</text>
+<line x1="560" y1="682" x2="190" y2="682" stroke="#94a3b8" stroke-width="1.4" marker-end="url(#arrow)"/>
+<rect x="305.0" y="658" width="150" height="22" rx="6" fill="#ffffff" stroke="#e2e8f0" stroke-width="1"/>
+<text x="375.0" y="673" font-size="11.5" fill="#0f172a" text-anchor="middle" font-weight="normal">10. 最终文本回答</text>
+<line x1="900" y1="152" x2="900" y2="752" stroke="#94a3b8" stroke-width="1.1" stroke-dasharray="5 6"/>
+</svg>
